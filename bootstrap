@@ -36,8 +36,24 @@ ensure_command_line_tools() {
 }
 
 ensure_homebrew() {
+  local installer status
+
   if [[ ! -x "$HOMEBREW_BIN" ]]; then
-    /usr/bin/curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh | /bin/bash
+    installer="$(/usr/bin/mktemp -t macsetup-homebrew.XXXXXX)" || die "failed to create Homebrew installer file"
+    if ! /usr/bin/curl -fsSL \
+      https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
+      -o "$installer"; then
+      /bin/rm -f "$installer"
+      die "failed to download the Homebrew installer"
+    fi
+
+    if /bin/bash "$installer"; then
+      /bin/rm -f "$installer"
+    else
+      status=$?
+      /bin/rm -f "$installer"
+      die "Homebrew installer failed with status ${status}"
+    fi
   fi
 
   [[ -x "$HOMEBREW_BIN" ]] || die "Homebrew is not executable at ${HOMEBREW_BIN}"
