@@ -29,7 +29,7 @@ jobs:
           /opt/homebrew/bin/zsh -fc '
             source dotfiles/.zsh_helpers.zsh
             [[ "$(alias ls)" == *"eza -l --icons=auto"* ]]
-            [[ "$(alias macsetup)" == *"$HOME/.macsetup"* ]]
+            [[ "${aliases[macsetup]}" == *HOME*.macsetup* ]]
             for helper in c ccd _resolve_fzf_colorscheme f v mkd o; do
               whence -w "$helper" >/dev/null
             done

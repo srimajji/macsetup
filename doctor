@@ -191,7 +191,7 @@ fi
 # shellcheck disable=SC2016
 if "$HOMEBREW_ZSH" -fc 'source "$HOME/.zsh_helpers.zsh" || exit 1
   [[ "$(alias ls)" == *"eza -l --icons=auto"* ]] || exit 1
-  [[ "$(alias macsetup)" == *"$HOME/.macsetup"* ]] || exit 1
+  [[ "${aliases[macsetup]}" == *HOME*.macsetup* ]] || exit 1
   for helper in c ccd _resolve_fzf_colorscheme f v mkd o; do
     whence -w "$helper" >/dev/null || exit 1
   done'; then
