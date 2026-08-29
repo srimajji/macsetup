@@ -1,0 +1,85 @@
+#!/bin/bash
+
+set -euo pipefail
+
+readonly REPOSITORY_URL="https://github.com/srimajji/macsetup.git"
+readonly REPOSITORY_BRANCH="main"
+readonly REPOSITORY_DIR="${HOME}/.macsetup"
+readonly HOMEBREW_BIN="/opt/homebrew/bin/brew"
+
+die() {
+  printf 'macsetup bootstrap: %s\n' "$*" >&2
+  exit 1
+}
+
+ensure_platform() {
+  local os architecture version major
+
+  os="$(/usr/bin/uname -s)"
+  [[ "$os" == "Darwin" ]] || die "unsupported operating system: ${os} (requires Darwin)"
+
+  architecture="$(/usr/bin/uname -m)"
+  [[ "$architecture" == "arm64" ]] || die "unsupported architecture: ${architecture} (requires arm64)"
+
+  version="$(/usr/bin/sw_vers -productVersion)"
+  major="${version%%.*}"
+  [[ "$major" =~ ^[0-9]+$ ]] || die "cannot parse macOS version: ${version}"
+  (( major >= 26 )) || die "unsupported macOS version: ${version} (requires macOS 26 or later)"
+}
+
+ensure_command_line_tools() {
+  if ! /usr/bin/xcode-select -p >/dev/null 2>&1; then
+    /usr/bin/xcode-select --install >/dev/null 2>&1 || true
+    printf '%s\n' 'Complete the Command Line Tools installation, then rerun bootstrap.' >&2
+    exit 2
+  fi
+}
+
+ensure_homebrew() {
+  if [[ ! -x "$HOMEBREW_BIN" ]]; then
+    /usr/bin/curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh | /bin/bash
+  fi
+
+  [[ -x "$HOMEBREW_BIN" ]] || die "Homebrew is not executable at ${HOMEBREW_BIN}"
+  eval "$("$HOMEBREW_BIN" shellenv)"
+}
+
+sync_repository() {
+  local origin branch
+
+  if [[ ! -e "$REPOSITORY_DIR" && ! -L "$REPOSITORY_DIR" ]]; then
+    /usr/bin/git clone --depth 1 --branch "$REPOSITORY_BRANCH" --single-branch \
+      "$REPOSITORY_URL" "$REPOSITORY_DIR" || die "failed to clone public main into ${REPOSITORY_DIR}"
+    return
+  fi
+
+  [[ -d "$REPOSITORY_DIR/.git" ]] || die "destination exists but is not a Git checkout: ${REPOSITORY_DIR}"
+
+  origin="$(/usr/bin/git -C "$REPOSITORY_DIR" remote get-url origin 2>/dev/null || true)"
+  [[ "$origin" == "$REPOSITORY_URL" ]] || die "unexpected origin in ${REPOSITORY_DIR}: ${origin:-<missing>}"
+
+  [[ -z "$(/usr/bin/git -C "$REPOSITORY_DIR" status --porcelain)" ]] || \
+    die "dirty worktree in ${REPOSITORY_DIR}; commit or discard changes before rerunning bootstrap"
+
+  if ! branch="$(/usr/bin/git -C "$REPOSITORY_DIR" symbolic-ref --quiet --short HEAD)"; then
+    die "detached HEAD in ${REPOSITORY_DIR}; bootstrap requires branch main"
+  fi
+  [[ "$branch" == "$REPOSITORY_BRANCH" ]] || \
+    die "unexpected branch in ${REPOSITORY_DIR}: ${branch} (requires main)"
+
+  /usr/bin/git -C "$REPOSITORY_DIR" fetch --prune origin "$REPOSITORY_BRANCH" || \
+    die "failed to fetch origin main in ${REPOSITORY_DIR}"
+  /usr/bin/git -C "$REPOSITORY_DIR" merge --ff-only FETCH_HEAD || \
+    die "origin main cannot be fast-forwarded in ${REPOSITORY_DIR}"
+}
+
+if (( $# != 0 )); then
+  printf '%s\n' 'usage: bootstrap' >&2
+  exit 64
+fi
+
+ensure_platform
+ensure_command_line_tools
+ensure_homebrew
+sync_repository
+exec "$REPOSITORY_DIR/setup"

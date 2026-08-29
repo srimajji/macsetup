@@ -1,0 +1,28 @@
+#!/bin/bash
+
+set -euo pipefail
+
+readonly FNM_BIN="/opt/homebrew/bin/fnm"
+
+if (( $# != 0 )); then
+  printf '%s\n' 'usage: post-install' >&2
+  exit 64
+fi
+
+if [[ ! -x "$FNM_BIN" ]]; then
+  printf 'macsetup post-install: fnm is not executable at %s\n' "$FNM_BIN" >&2
+  exit 1
+fi
+
+eval "$("$FNM_BIN" env --shell bash)"
+"$FNM_BIN" install --lts --use
+current_version="$("$FNM_BIN" current)"
+[[ -n "$current_version" ]] || {
+  printf '%s\n' 'macsetup post-install: fnm did not report a current Node version' >&2
+  exit 1
+}
+"$FNM_BIN" default "$current_version"
+"$FNM_BIN" exec --using=default node --version
+"$FNM_BIN" exec --using=default node -e 'if (!process.release.lts) process.exit(1)'
+"$FNM_BIN" exec --using=default npm --version
+printf 'Installed default Node LTS: %s\n' "$current_version"

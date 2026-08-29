@@ -1,0 +1,74 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install validation tools
+        run: brew install shellcheck antidote eza fnm fzf direnv gh starship zoxide neovim zsh
+
+      - name: Validate shell syntax and lint
+        run: |
+          bash -n bootstrap setup post-install doctor
+          shellcheck -s bash bootstrap setup post-install doctor
+          /opt/homebrew/bin/zsh -n dotfiles/.zprofile dotfiles/.zshrc dotfiles/.zsh_helpers.zsh
+
+      - name: Validate helper command surface
+        run: |
+          /opt/homebrew/bin/zsh -fc '
+            source dotfiles/.zsh_helpers.zsh
+            [[ "$(alias ls)" == *"eza -l --icons=auto"* ]]
+            [[ "$(alias macsetup)" == *"$HOME/.macsetup"* ]]
+            for helper in c ccd _resolve_fzf_colorscheme f v mkd o; do
+              whence -w "$helper" >/dev/null
+            done
+            [[ "$(print -r -- "file with space" | f --filter="file with space")" == "file with space" ]]
+          '
+
+      - name: Validate exact Brewfile contract
+        shell: bash
+        run: |
+          brew bundle list --file=Brewfile
+          diff -u \
+            <(printf '%s\n' antidote awscli bat bun cloudflared container curl devcontainer direnv eza fnm fzf gh git go neovim omp openssl php pyenv starship watchman zoxide zsh | sort) \
+            <(brew bundle list --formula --file=Brewfile | sort)
+          diff -u \
+            <(printf '%s\n' 1password 1password-cli cursor discord docker-desktop figma flux font-hack-nerd-font font-jetbrains-mono font-jetbrains-mono-nerd-font font-zed-mono-nerd-font google-chrome@dev kitty leapp lm-studio raycast session-manager-plugin slack spotify tailscale-app thebrowsercompany-dia visual-studio-code@insiders vscodium warp zed zen | sort) \
+            <(brew bundle list --cask --file=Brewfile | sort)
+
+      - name: Validate Node LTS post-install
+        shell: bash
+        run: |
+          node_home="$(mktemp -d)"
+          HOME="$node_home" FNM_DIR="$node_home/.fnm" ./post-install
+          HOME="$node_home" FNM_DIR="$node_home/.fnm" \
+            /opt/homebrew/bin/fnm exec --using=default node \
+            -e 'if (!process.release.lts) process.exit(1)'
+
+      - name: Validate Starship configuration
+        run: STARSHIP_CONFIG="$PWD/dotfiles/.config/starship.toml" starship print-config >/dev/null
+
+      - name: Generate Antidote bundle
+        shell: bash
+        run: |
+          plugin_home="$(mktemp -d)"
+          /opt/homebrew/bin/zsh -fc 'source "$1"; antidote bundle < "$2" > "$3"' \
+            macsetup \
+            /opt/homebrew/opt/antidote/share/antidote/antidote.zsh \
+            "$PWD/dotfiles/.zsh_plugins.txt" \
+            "$plugin_home/.zsh_plugins.zsh"
+          test -s "$plugin_home/.zsh_plugins.zsh"
+
+      - name: Validate Neovim configuration
+        run: XDG_CONFIG_HOME="$PWD/dotfiles/.config" /opt/homebrew/bin/nvim --headless '+qall'

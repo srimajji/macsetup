@@ -1,0 +1,135 @@
+#!/bin/bash
+
+set -euo pipefail
+
+REPO_ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+readonly REPO_ROOT
+readonly HOMEBREW_BIN="/opt/homebrew/bin/brew"
+readonly HOMEBREW_ZSH="/opt/homebrew/bin/zsh"
+BACKUP_TIMESTAMP="$(/bin/date -u +%Y%m%dT%H%M%SZ)"
+readonly BACKUP_TIMESTAMP
+BACKUP_ROOT=""
+
+die() {
+  printf 'macsetup setup: %s\n' "$*" >&2
+  exit 1
+}
+
+validate_environment() {
+  local skip_account_shell="${MAC_SETUP_SKIP_ACCOUNT_SHELL:-}"
+
+  if (( $# != 0 )); then
+    printf '%s\n' 'usage: setup' >&2
+    exit 64
+  fi
+
+  if [[ -n "$skip_account_shell" && "$skip_account_shell" != "1" ]]; then
+    printf '%s\n' 'MAC_SETUP_SKIP_ACCOUNT_SHELL must be unset or 1' >&2
+    exit 64
+  fi
+
+  [[ -n "${HOME:-}" ]] || die 'HOME is not set'
+}
+
+backup_and_link() {
+  local source="$1"
+  local destination="$2"
+  local relative_destination backup_destination
+
+  [[ -e "$source" ]] || die "managed source is missing: ${source}"
+
+  if [[ -L "$destination" && "$destination" -ef "$source" ]]; then
+    printf 'skip: %s -> %s\n' "$destination" "$source"
+    return
+  fi
+
+  /bin/mkdir -p "$(/usr/bin/dirname "$destination")"
+
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    if [[ -z "$BACKUP_ROOT" ]]; then
+      BACKUP_ROOT="${HOME}/.macsetup-backups/${BACKUP_TIMESTAMP}"
+      [[ ! -e "$BACKUP_ROOT" ]] || die "backup root already exists: ${BACKUP_ROOT}"
+    fi
+
+    relative_destination="${destination#"${HOME}/"}"
+    [[ "$relative_destination" != "$destination" ]] || die "refusing to back up path outside HOME: ${destination}"
+    backup_destination="${BACKUP_ROOT}/${relative_destination}"
+    /bin/mkdir -p "$(/usr/bin/dirname "$backup_destination")"
+    /bin/mv "$destination" "$backup_destination"
+    printf 'backup: %s -> %s\n' "$destination" "$backup_destination"
+  fi
+
+  /bin/ln -s "$source" "$destination"
+  printf 'link: %s -> %s\n' "$destination" "$source"
+}
+
+ensure_default_shell() {
+  local count account_shell
+
+  [[ -x "$HOMEBREW_ZSH" ]] || die "Homebrew Zsh is not executable at ${HOMEBREW_ZSH}"
+
+  if [[ "${MAC_SETUP_SKIP_ACCOUNT_SHELL:-}" == "1" ]]; then
+    printf '%s\n' 'skip: /etc/shells and account shell (MAC_SETUP_SKIP_ACCOUNT_SHELL=1)'
+    return
+  fi
+
+  count="$(/usr/bin/grep -Fxc "$HOMEBREW_ZSH" /etc/shells || true)"
+  if [[ "$count" == "0" ]]; then
+    printf '%s\n' "$HOMEBREW_ZSH" | /usr/bin/sudo /usr/bin/tee -a /etc/shells >/dev/null
+    count="$(/usr/bin/grep -Fxc "$HOMEBREW_ZSH" /etc/shells || true)"
+  fi
+  [[ "$count" == "1" ]] || die "expected exactly one ${HOMEBREW_ZSH} entry in /etc/shells; found ${count}"
+
+  account_shell="$(/usr/bin/dscl . -read "/Users/${USER}" UserShell 2>/dev/null || true)"
+  if [[ "$account_shell" != "UserShell: ${HOMEBREW_ZSH}" ]]; then
+    /usr/bin/chsh -s "$HOMEBREW_ZSH"
+    account_shell="$(/usr/bin/dscl . -read "/Users/${USER}" UserShell 2>/dev/null || true)"
+  fi
+  [[ "$account_shell" == "UserShell: ${HOMEBREW_ZSH}" ]] || \
+    die "account shell is not ${HOMEBREW_ZSH}: ${account_shell:-<missing>}"
+}
+
+install_antidote_plugins() {
+  local antidote_script="${HOMEBREW_PREFIX}/opt/antidote/share/antidote/antidote.zsh"
+  local generated="${HOME}/.zsh_plugins.zsh"
+  local temporary="${generated}.tmp.$$"
+
+  [[ -r "$antidote_script" ]] || die "Antidote is missing: ${antidote_script}"
+  [[ -r "${HOME}/.zsh_plugins.txt" ]] || die "plugin manifest is missing: ${HOME}/.zsh_plugins.txt"
+
+  /bin/rm -f "$temporary"
+  # Positional parameters are expanded by the child Zsh, not this Bash process.
+  # shellcheck disable=SC2016
+  if ! "$HOMEBREW_ZSH" -fc 'source "$1"; antidote bundle < "$2" > "$3"' \
+    macsetup "$antidote_script" "${HOME}/.zsh_plugins.txt" "$temporary"; then
+    /bin/rm -f "$temporary"
+    die 'failed to generate Antidote plugin bundle'
+  fi
+  /bin/mv "$temporary" "$generated"
+  printf 'generated: %s\n' "$generated"
+}
+
+run_post_install() {
+  "$REPO_ROOT/post-install"
+}
+
+validate_environment "$@"
+[[ -x "$HOMEBREW_BIN" ]] || die "Homebrew is not executable at ${HOMEBREW_BIN}"
+eval "$("$HOMEBREW_BIN" shellenv)"
+
+"$HOMEBREW_BIN" bundle --file "$REPO_ROOT/Brewfile" --no-upgrade
+"$HOMEBREW_BIN" bundle check --file "$REPO_ROOT/Brewfile" --verbose
+
+backup_and_link "$REPO_ROOT/dotfiles/.zprofile" "${HOME}/.zprofile"
+backup_and_link "$REPO_ROOT/dotfiles/.zshrc" "${HOME}/.zshrc"
+backup_and_link "$REPO_ROOT/dotfiles/.zsh_helpers.zsh" "${HOME}/.zsh_helpers.zsh"
+backup_and_link "$REPO_ROOT/dotfiles/.zsh_plugins.txt" "${HOME}/.zsh_plugins.txt"
+backup_and_link "$REPO_ROOT/dotfiles/.config/starship.toml" "${HOME}/.config/starship.toml"
+backup_and_link "$REPO_ROOT/dotfiles/.config/nvim/init.lua" "${HOME}/.config/nvim/init.lua"
+backup_and_link "$REPO_ROOT/dotfiles/.config/nvim/nvim-pack-lock.json" "${HOME}/.config/nvim/nvim-pack-lock.json"
+
+ensure_default_shell
+install_antidote_plugins
+/opt/homebrew/bin/nvim --headless '+qall'
+run_post_install
+exec "$REPO_ROOT/doctor"
