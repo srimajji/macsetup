@@ -116,6 +116,8 @@ run_post_install() {
 validate_environment "$@"
 [[ -x "$HOMEBREW_BIN" ]] || die "Homebrew is not executable at ${HOMEBREW_BIN}"
 eval "$("$HOMEBREW_BIN" shellenv)"
+"$HOMEBREW_BIN" trust --formula can1357/tap/omp
+
 
 "$HOMEBREW_BIN" bundle --file "$REPO_ROOT/Brewfile" --no-upgrade
 "$HOMEBREW_BIN" bundle check --file "$REPO_ROOT/Brewfile" --verbose
