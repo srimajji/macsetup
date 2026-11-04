@@ -1,0 +1,32 @@
+[user]
+	name = Sri Majji
+	email = srimajji@users.noreply.github.com
+
+[core]
+	autocrlf = input
+	precomposeUnicode = true
+
+[init]
+	defaultBranch = main
+
+[pull]
+	ff = only
+
+[push]
+	default = simple
+
+[help]
+	autocorrect = prompt
+
+[credential]
+	helper = osxkeychain
+
+[url "git@github.com:"]
+	insteadOf = gh:
+	insteadOf = github:
+	insteadOf = git://github.com/
+
+[url "git@gist.github.com:"]
+	insteadOf = gst:
+	insteadOf = gist:
+	insteadOf = git://gist.github.com/

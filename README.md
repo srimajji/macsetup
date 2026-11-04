@@ -2,7 +2,7 @@
 
 ## What it does
 
-Applies the packages in `Brewfile`, links the managed Zsh, Starship, and Neovim configuration into the home directory, installs Antidote plugins, selects Homebrew Zsh as the login shell, installs the latest Node LTS with fnm, and installs the latest stable Python 3 with uv. Application sign-in remains manual; this repository never stores credentials.
+Applies the packages in `Brewfile`, links the managed Zsh, Git, Starship, and Neovim configuration into the home directory, installs Antidote plugins, selects Homebrew Zsh as the login shell, installs the latest Node LTS with fnm, and installs the latest stable Python 3 with uv. Application sign-in remains manual; this repository never stores credentials.
 
 ## First machine setup
 
@@ -67,7 +67,7 @@ exec /opt/homebrew/bin/zsh -l
 
 ## Updating configuration
 
-Five managed home paths are symbolic links into the writable `${HOME}/.macsetup` checkout. `~/.zprofile` and `~/.zshrc` are instead small machine-local loaders that source `dotfiles/.zprofile` and `dotfiles/.zshrc`, so installers can append to them without changing the repository. Edit the shared Zsh configuration under `${HOME}/.macsetup/dotfiles/`. For a checkout already on `main`:
+Six managed home paths are symbolic links into the writable `${HOME}/.macsetup` checkout. `~/.zprofile`, `~/.zshrc`, and `~/.gitconfig` are instead small machine-local loaders that load `dotfiles/.zprofile`, `dotfiles/.zshrc`, and `dotfiles/.gitconfig`, so installers and `git config --global` can write to them without changing the repository. Edit the shared configuration under `${HOME}/.macsetup/dotfiles/`. Because `~/.gitconfig` uses `[include]`, add `--includes` when reading a shared value with `git config --global`. For a checkout already on `main`:
 
 ```bash
 macsetup status --short

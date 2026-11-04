@@ -52,12 +52,13 @@ check_managed_link() {
 check_loader() {
   local source="$1"
   local destination="$2"
+  local loader="$3"
 
   if [[ -f "$destination" && ! -L "$destination" ]] && \
-    /usr/bin/grep -Fqx "source \"${source}\"" "$destination"; then
-    pass "loader ${destination} sources ${source}"
+    /usr/bin/grep -Fqx "$loader" "$destination"; then
+    pass "loader ${destination} loads ${source}"
   else
-    fail "loader ${destination} sources ${source}"
+    fail "loader ${destination} loads ${source}"
   fi
 }
 
@@ -174,10 +175,12 @@ else
   fail 'Brewfile package contract is installed'
 fi
 
-check_loader "$REPO_ROOT/dotfiles/.zprofile" "${HOME}/.zprofile"
-check_loader "$REPO_ROOT/dotfiles/.zshrc" "${HOME}/.zshrc"
+check_loader "$REPO_ROOT/dotfiles/.zprofile" "${HOME}/.zprofile" "source \"$REPO_ROOT/dotfiles/.zprofile\""
+check_loader "$REPO_ROOT/dotfiles/.zshrc" "${HOME}/.zshrc" "source \"$REPO_ROOT/dotfiles/.zshrc\""
+check_loader "$REPO_ROOT/dotfiles/.gitconfig" "${HOME}/.gitconfig" "[include] path = \"$REPO_ROOT/dotfiles/.gitconfig\""
 check_managed_link "$REPO_ROOT/dotfiles/.zsh_helpers.zsh" "${HOME}/.zsh_helpers.zsh"
 check_managed_link "$REPO_ROOT/dotfiles/.zsh_plugins.txt" "${HOME}/.zsh_plugins.txt"
+check_managed_link "$REPO_ROOT/dotfiles/.config/git/ignore" "${HOME}/.config/git/ignore"
 check_managed_link "$REPO_ROOT/dotfiles/.config/starship.toml" "${HOME}/.config/starship.toml"
 check_managed_link "$REPO_ROOT/dotfiles/.config/nvim/init.lua" "${HOME}/.config/nvim/init.lua"
 check_managed_link "$REPO_ROOT/dotfiles/.config/nvim/nvim-pack-lock.json" "${HOME}/.config/nvim/nvim-pack-lock.json"
