@@ -175,7 +175,6 @@ done
 
 check_command 'eza is available' /opt/homebrew/bin/eza --version
 check_command 'GitHub CLI is available' /opt/homebrew/bin/gh --version
-check_command 'OMP is available' /opt/homebrew/bin/omp --version
 check_command 'Starship is available' /opt/homebrew/bin/starship --version
 check_command 'Starship configuration parses' env \
   "STARSHIP_CONFIG=${HOME}/.config/starship.toml" /opt/homebrew/bin/starship print-config

@@ -41,10 +41,10 @@ jobs:
         run: |
           brew bundle list --file=Brewfile
           diff -u \
-            <(printf '%s\n' antidote awscli bat bun cloudflared container curl devcontainer direnv eza fnm fzf gh git go neovim omp openssl php pyenv starship watchman zoxide zsh | sort) \
+            <(printf '%s\n' antidote awscli bat bun cloudflared container curl devcontainer direnv eza fnm fzf gh git go neovim opencode openssl php pyenv starship watchman zoxide zsh | sort) \
             <(brew bundle list --formula --file=Brewfile | sort)
           diff -u \
-            <(printf '%s\n' 1password 1password-cli cursor discord docker-desktop figma flux font-hack-nerd-font font-jetbrains-mono font-jetbrains-mono-nerd-font font-zed-mono-nerd-font google-chrome@dev kitty leapp lm-studio raycast session-manager-plugin slack spotify tailscale-app thebrowsercompany-dia visual-studio-code@insiders vscodium warp zed zen | sort) \
+            <(printf '%s\n' 1password 1password-cli antigravity chatgpt claude claude-code@latest codex cursor cursor-cli discord docker-desktop figma flux-app font-hack-nerd-font font-jetbrains-mono font-jetbrains-mono-nerd-font font-paper-mono font-zed-mono-nerd-font google-chrome@dev granola kitty leapp openlogi raycast session-manager-plugin slack spotify tailscale-app thebrowsercompany-dia vscodium warp zed | sort) \
             <(brew bundle list --cask --file=Brewfile | sort)
 
       - name: Validate Node LTS post-install
