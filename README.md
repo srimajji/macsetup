@@ -6,26 +6,45 @@ Applies the packages in `Brewfile`, links the managed Zsh, Git, Starship, and Ne
 
 ## First machine setup
 
-Finish macOS Setup Assistant, connect to the internet, and open Terminal. Then download and run the public bootstrap:
+Requires an Apple Silicon Mac on macOS 26 or later. Run these steps in order.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/srimajji/macsetup/main/bootstrap -o /tmp/macsetup-setup
-/bin/bash /tmp/macsetup-setup
-```
+1. Finish macOS Setup Assistant, connect to the internet, and open Terminal.
+2. Download and run the public bootstrap:
 
-The downloaded bootstrap always clones or fast-forwards to the latest public `main` commit in `${HOME}/.macsetup`, then runs its `setup`. If Command Line Tools opens and the script exits `2`, complete the installer and rerun only:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/srimajji/macsetup/main/bootstrap -o /tmp/macsetup-setup
+   /bin/bash /tmp/macsetup-setup
+   ```
 
-```bash
-/bin/bash /tmp/macsetup-setup
-```
+   If the Command Line Tools installer opens and the script exits `2`, complete the installer and rerun only the second line. Stay nearby to answer Homebrew, cask, and login-shell password or approval prompts.
 
-Complete Homebrew, cask, and login-shell password or approval prompts. Open a new Terminal and run `${HOME}/.macsetup/doctor`.
+   Bootstrap installs Command Line Tools and Homebrew, clones the latest public `main` into `${HOME}/.macsetup`, and runs `setup`. `setup` installs the `Brewfile`, writes the Zsh and Git loaders and config links, switches the login shell to Homebrew Zsh, generates Antidote plugins, starts Neovim once to install its plugins, then runs `post-install` (Node LTS with fnm and Python 3 with uv) and `doctor`.
+3. Open a new Terminal window so it starts Homebrew Zsh with the managed configuration, then verify:
 
-After signing in to 1Password, create the encrypted, case-sensitive `Dev` volume for code at `/Volumes/Dev` (with `personal` and `work` folders). Paste the volume password from 1Password when prompted, and let macOS remember it in the keychain when it first asks at login:
+   ```bash
+   "$HOME/.macsetup/doctor"
+   ```
 
-```bash
-"$HOME/.macsetup/dev-volume"
-```
+   Expect one warning until step 6: `/Volumes/Dev is not mounted`.
+4. Open 1Password, sign in, and turn on its SSH agent (Settings → Developer). `.zprofile` already points `SSH_AUTH_SOCK` at it.
+5. Sign in to GitHub so you can push from `${HOME}/.macsetup`:
+
+   ```bash
+   gh auth login --web --git-protocol https
+   gh auth setup-git
+   ```
+6. Create the encrypted, case-sensitive `Dev` volume for code at `/Volumes/Dev`, with `personal` and `work` folders. Paste the volume password from 1Password at the prompts. When macOS later asks for it at login, choose to remember it in the keychain:
+
+   ```bash
+   "$HOME/.macsetup/dev-volume"
+   ```
+7. Move Spotlight off ⌘ Space before giving it to Raycast: in System Settings → Keyboard → Keyboard Shortcuts → Spotlight, set "Show Spotlight search" to ⌥ Space. Then open Raycast and choose ⌘ Space as its hotkey during onboarding, or restore your Raycast settings.
+8. Install oMLX from the macOS 26 DMG on its [releases page](https://github.com/jundot/omlx/releases), open it once to choose a model folder, and let it add its CLI to `~/.zshrc`.
+9. Sign in to the remaining apps, and open Docker Desktop once to finish its setup.
+
+### If a step fails
+
+Fix the cause and rerun; every step skips work that is already done. Before the repository is cloned, rerun `/bin/bash /tmp/macsetup-setup`, or both bootstrap lines after a restart, because macOS clears `/tmp`. After the clone, run `"$HOME/.macsetup/setup"` directly. Bootstrap refuses to run while `${HOME}/.macsetup` has uncommitted changes, so commit them or use `setup` directly. Files that `setup` replaces are moved to `~/.macsetup-backups/<timestamp>/`.
 
 ## Commands
 
@@ -78,7 +97,7 @@ macsetup commit -m "Update Zsh configuration"
 macsetup push origin main
 ```
 
-On the first push from a reset machine, authenticate interactively with `gh auth login --web --git-protocol https`, then run `gh auth setup-git`. Bootstrap itself is credential-free. Never reset or switch branches with uncommitted changes.
+Pushing requires the GitHub sign-in from step 5 of First machine setup. Bootstrap itself is credential-free. Never reset or switch branches with uncommitted changes.
 
 Edit repository-owned, non-linked files such as `Brewfile`, `setup`, and `doctor` under `${HOME}/.macsetup`; run `${HOME}/.macsetup/setup`, review `macsetup diff`, commit, and push. To adopt another configuration file, place it under `dotfiles/` at its home-relative path, add the corresponding setup link and doctor assertion, run setup, then commit the complete change.
 
