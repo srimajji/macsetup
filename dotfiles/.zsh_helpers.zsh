@@ -32,6 +32,7 @@ alias refresh='source "$HOME/.zshrc"'
 alias reload='exec /opt/homebrew/bin/zsh -l'
 alias path='print -l $path'
 alias b=bat
+alias cat=bat
 
 c() {
   /usr/bin/tr -d '\n' | /usr/bin/pbcopy
