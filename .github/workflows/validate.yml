@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install validation tools
-        run: brew install shellcheck antidote eza fnm fzf direnv gh starship zoxide neovim zsh
+        run: brew install shellcheck antidote eza fnm fzf direnv gh starship zoxide neovim zsh uv
 
       - name: Validate shell syntax and lint
         run: |
@@ -41,20 +41,21 @@ jobs:
         run: |
           brew bundle list --file=Brewfile
           diff -u \
-            <(printf '%s\n' antidote awscli bat bun cloudflared container curl devcontainer direnv eza fnm fzf gh git go neovim opencode openssl php pyenv starship watchman zoxide zsh | sort) \
+            <(printf '%s\n' antidote awscli bat bun cloudflared container curl devcontainer direnv eza fnm fzf gh git go neovim opencode openssl php starship uv watchman zoxide zsh | sort) \
             <(brew bundle list --formula --file=Brewfile | sort)
           diff -u \
             <(printf '%s\n' 1password 1password-cli antigravity chatgpt claude claude-code@latest codex cursor cursor-cli discord docker-desktop figma flux-app font-hack-nerd-font font-jetbrains-mono font-jetbrains-mono-nerd-font font-paper-mono font-zed-mono-nerd-font google-chrome@dev granola kitty leapp openlogi raycast session-manager-plugin slack spotify tailscale-app thebrowsercompany-dia vscodium warp zed | sort) \
             <(brew bundle list --cask --file=Brewfile | sort)
 
-      - name: Validate Node LTS post-install
+      - name: Validate Node LTS and Python post-install
         shell: bash
         run: |
-          node_home="$(mktemp -d)"
-          HOME="$node_home" FNM_DIR="$node_home/.fnm" ./post-install
-          HOME="$node_home" FNM_DIR="$node_home/.fnm" \
-            /opt/homebrew/bin/fnm exec --using=default node \
+          runtime_home="$(mktemp -d)"
+          export HOME="$runtime_home" FNM_DIR="$runtime_home/.fnm" XDG_BIN_HOME="$runtime_home/.local/bin" XDG_DATA_HOME="$runtime_home/.local/share"
+          ./post-install
+          /opt/homebrew/bin/fnm exec --using=default node \
             -e 'if (!process.release.lts) process.exit(1)'
+          "$HOME/.local/bin/python" -c 'import ctypes, lzma, readline, sqlite3, ssl'
 
       - name: Validate Starship configuration
         run: STARSHIP_CONFIG="$PWD/dotfiles/.config/starship.toml" starship print-config >/dev/null

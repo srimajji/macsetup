@@ -43,8 +43,8 @@ if (( $+commands[fnm] )); then
   source <(fnm completions --shell zsh)
   eval "$(fnm env --use-on-cd --shell zsh)"
 fi
-if (( $+commands[pyenv] )); then
-  eval "$(pyenv init - zsh)"
+if (( $+commands[uv] )); then
+  eval "$(uv generate-shell-completion zsh)"
 fi
 
 _antidote_script="${HOMEBREW_PREFIX:-/opt/homebrew}/opt/antidote/share/antidote/antidote.zsh"

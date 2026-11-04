@@ -2,7 +2,7 @@
 
 ## What it does
 
-Applies the packages in `Brewfile`, links the managed Zsh, Starship, and Neovim configuration into the home directory, installs Antidote plugins, selects Homebrew Zsh as the login shell, and installs the latest Node LTS with fnm. Application sign-in remains manual; this repository never stores credentials.
+Applies the packages in `Brewfile`, links the managed Zsh, Starship, and Neovim configuration into the home directory, installs Antidote plugins, selects Homebrew Zsh as the login shell, installs the latest Node LTS with fnm, and installs the latest stable Python 3 with uv. Application sign-in remains manual; this repository never stores credentials.
 
 ## First machine setup
 
@@ -34,13 +34,15 @@ After signing in to 1Password, create the encrypted, case-sensitive `Dev` volume
 | Command | Purpose |
 | --- | --- |
 | `${HOME}/.macsetup/setup` | Apply packages and configuration |
-| `${HOME}/.macsetup/post-install` | Install and default the latest Node LTS |
+| `${HOME}/.macsetup/post-install` | Install and default the latest Node LTS and Python 3 |
 | `${HOME}/.macsetup/doctor` | Run read-only verification |
 | `${HOME}/.macsetup/dev-volume` | Create the encrypted `/Volumes/Dev` code volume |
 | `brew bundle check --file "$HOME/.macsetup/Brewfile" --verbose` | Verify the package contract |
 | `fnm list` | List installed Node versions |
 | `fnm use <version>` | Activate an installed Node version |
 | `fnm install --lts` | Install the latest Node LTS |
+| `uv python list --only-installed` | List installed Python versions |
+| `uv python pin <version>` | Pin a Python version for the current project |
 | `macsetup status --short` | Show concise checkout changes |
 | `macsetup diff` | Review checkout changes |
 

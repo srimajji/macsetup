@@ -7,6 +7,7 @@ readonly REPO_ROOT
 readonly HOMEBREW_BIN="/opt/homebrew/bin/brew"
 readonly HOMEBREW_ZSH="/opt/homebrew/bin/zsh"
 readonly FNM_BIN="/opt/homebrew/bin/fnm"
+readonly UV_BIN="/opt/homebrew/bin/uv"
 failures=0
 
 pass() {
@@ -186,6 +187,16 @@ check_command 'default Node is available through fnm' "$FNM_BIN" exec --using=de
 check_command 'default Node reports an LTS release' \
   "$FNM_BIN" exec --using=default node -e 'if (!process.release.lts) process.exit(1)'
 check_command 'default npm is available through fnm' "$FNM_BIN" exec --using=default npm --version
+
+check_command 'uv is available' "$UV_BIN" --version
+uv_python_dir="$("$UV_BIN" python dir 2>/dev/null || true)"
+python_target="$(/usr/bin/readlink "${HOME}/.local/bin/python" 2>/dev/null || true)"
+if [[ -n "$uv_python_dir" && "$python_target" == "$uv_python_dir"/* ]] && \
+  "${HOME}/.local/bin/python" -c 'import ctypes, lzma, readline, sqlite3, ssl'; then
+  pass "default Python is installed by uv (${python_target#"$uv_python_dir"/})"
+else
+  fail "default Python is installed by uv (${python_target:-missing})"
+fi
 
 if [[ -s "${HOME}/.zsh_plugins.zsh" ]]; then
   pass 'generated Antidote bundle exists'

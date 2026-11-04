@@ -3,6 +3,7 @@
 set -euo pipefail
 
 readonly FNM_BIN="/opt/homebrew/bin/fnm"
+readonly UV_BIN="/opt/homebrew/bin/uv"
 
 if (( $# != 0 )); then
   printf '%s\n' 'usage: post-install' >&2
@@ -11,6 +12,11 @@ fi
 
 if [[ ! -x "$FNM_BIN" ]]; then
   printf 'macsetup post-install: fnm is not executable at %s\n' "$FNM_BIN" >&2
+  exit 1
+fi
+
+if [[ ! -x "$UV_BIN" ]]; then
+  printf 'macsetup post-install: uv is not executable at %s\n' "$UV_BIN" >&2
   exit 1
 fi
 
@@ -26,3 +32,8 @@ current_version="$("$FNM_BIN" current)"
 "$FNM_BIN" exec --using=default node -e 'if (!process.release.lts) process.exit(1)'
 "$FNM_BIN" exec --using=default npm --version
 printf 'Installed default Node LTS: %s\n' "$current_version"
+
+# --default links python and python3 into ~/.local/bin, which .zprofile puts first on PATH.
+"$UV_BIN" python install --default --preview-features python-install-default
+"${HOME}/.local/bin/python" -c 'import ctypes, lzma, readline, sqlite3, ssl'
+printf 'Installed default Python: %s\n' "$("${HOME}/.local/bin/python" --version)"
