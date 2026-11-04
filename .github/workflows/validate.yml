@@ -20,8 +20,8 @@ jobs:
 
       - name: Validate shell syntax and lint
         run: |
-          bash -n bootstrap setup post-install doctor
-          shellcheck -s bash bootstrap setup post-install doctor
+          bash -n bootstrap setup post-install doctor dev-volume
+          shellcheck -s bash bootstrap setup post-install doctor dev-volume
           /opt/homebrew/bin/zsh -n dotfiles/.zprofile dotfiles/.zshrc dotfiles/.zsh_helpers.zsh
 
       - name: Validate helper command surface

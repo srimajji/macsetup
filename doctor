@@ -48,6 +48,18 @@ check_managed_link() {
   fi
 }
 
+check_loader() {
+  local source="$1"
+  local destination="$2"
+
+  if [[ -f "$destination" && ! -L "$destination" ]] && \
+    /usr/bin/grep -Fqx "source \"${source}\"" "$destination"; then
+    pass "loader ${destination} sources ${source}"
+  else
+    fail "loader ${destination} sources ${source}"
+  fi
+}
+
 check_checkout_warning() {
   local branch
 
@@ -64,6 +76,28 @@ check_checkout_warning() {
 
   if [[ -n "$(/usr/bin/git -C "${HOME}/.macsetup" status --porcelain)" ]]; then
     warn "${HOME}/.macsetup has uncommitted changes"
+  fi
+}
+
+check_dev_volume() {
+  local info
+
+  if ! info="$(/usr/sbin/diskutil info -plist /Volumes/Dev 2>/dev/null)" || \
+    [[ "$(/usr/bin/plutil -extract MountPoint raw - <<<"$info" 2>/dev/null)" != "/Volumes/Dev" ]]; then
+    warn "/Volumes/Dev is not mounted; run ${REPO_ROOT}/dev-volume after setting up 1Password"
+    return
+  fi
+
+  if [[ "$(/usr/bin/plutil -extract FilesystemName raw - <<<"$info" 2>/dev/null)" == "Case-sensitive APFS" ]]; then
+    pass 'Dev volume is Case-sensitive APFS'
+  else
+    fail 'Dev volume is Case-sensitive APFS'
+  fi
+
+  if [[ "$(/usr/bin/plutil -extract Encryption raw - <<<"$info" 2>/dev/null)" == "true" ]]; then
+    pass 'Dev volume is encrypted'
+  else
+    fail 'Dev volume is encrypted'
   fi
 }
 
@@ -139,8 +173,8 @@ else
   fail 'Brewfile package contract is installed'
 fi
 
-check_managed_link "$REPO_ROOT/dotfiles/.zprofile" "${HOME}/.zprofile"
-check_managed_link "$REPO_ROOT/dotfiles/.zshrc" "${HOME}/.zshrc"
+check_loader "$REPO_ROOT/dotfiles/.zprofile" "${HOME}/.zprofile"
+check_loader "$REPO_ROOT/dotfiles/.zshrc" "${HOME}/.zshrc"
 check_managed_link "$REPO_ROOT/dotfiles/.zsh_helpers.zsh" "${HOME}/.zsh_helpers.zsh"
 check_managed_link "$REPO_ROOT/dotfiles/.zsh_plugins.txt" "${HOME}/.zsh_plugins.txt"
 check_managed_link "$REPO_ROOT/dotfiles/.config/starship.toml" "${HOME}/.config/starship.toml"
@@ -200,6 +234,7 @@ else
 fi
 
 check_command 'Neovim starts headlessly' /opt/homebrew/bin/nvim --headless '+qall'
+check_dev_volume
 check_checkout_warning
 
 if (( failures != 0 )); then

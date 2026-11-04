@@ -1,0 +1,60 @@
+#!/bin/bash
+
+set -euo pipefail
+
+readonly VOLUME_NAME="Dev"
+readonly VOLUME_PATH="/Volumes/${VOLUME_NAME}"
+readonly VOLUME_FOLDERS=(personal work)
+
+die() {
+  printf 'macsetup dev-volume: %s\n' "$*" >&2
+  exit 1
+}
+
+volume_field() {
+  /usr/sbin/diskutil info -plist "$1" 2>/dev/null | /usr/bin/plutil -extract "$2" raw - 2>/dev/null
+}
+
+ensure_folders() {
+  local folder
+
+  if [[ ! -w "$VOLUME_PATH" ]]; then
+    /usr/bin/sudo /usr/sbin/chown "${USER}:staff" "$VOLUME_PATH"
+  fi
+
+  for folder in "${VOLUME_FOLDERS[@]}"; do
+    /bin/mkdir -p "${VOLUME_PATH}/${folder}"
+  done
+}
+
+if (( $# != 0 )); then
+  printf '%s\n' 'usage: dev-volume' >&2
+  exit 64
+fi
+
+if [[ "$(volume_field "$VOLUME_PATH" MountPoint || true)" == "$VOLUME_PATH" ]]; then
+  [[ "$(volume_field "$VOLUME_PATH" FilesystemName || true)" == "Case-sensitive APFS" ]] || \
+    die "${VOLUME_PATH} exists but is not Case-sensitive APFS"
+  printf 'skip: %s is already mounted\n' "$VOLUME_PATH"
+  ensure_folders
+  exit 0
+fi
+
+if /usr/sbin/diskutil info "$VOLUME_NAME" >/dev/null 2>&1; then
+  die "a volume named ${VOLUME_NAME} exists but is not mounted at ${VOLUME_PATH}; unlock or mount it in Disk Utility"
+fi
+
+[[ ! -e "$VOLUME_PATH" ]] || die "${VOLUME_PATH} exists but is not a mounted volume"
+
+container="$(volume_field / APFSContainerReference || true)"
+[[ -n "$container" ]] || die 'cannot find the APFS container of the startup disk'
+
+printf 'Creating encrypted Case-sensitive APFS volume %s in %s.\n' "$VOLUME_NAME" "$container"
+printf '%s\n' 'Paste the volume password from 1Password at each prompt.'
+/usr/sbin/diskutil apfs addVolume "$container" APFSX "$VOLUME_NAME" -passprompt
+
+[[ "$(volume_field "$VOLUME_PATH" MountPoint || true)" == "$VOLUME_PATH" ]] || \
+  die "volume was created but is not mounted at ${VOLUME_PATH}"
+ensure_folders
+printf 'created: %s\n' "$VOLUME_PATH"
+printf '%s\n' 'When macOS later asks for this password at login, choose to remember it in your keychain.'

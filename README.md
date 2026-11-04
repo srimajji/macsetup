@@ -21,6 +21,12 @@ The downloaded bootstrap always clones or fast-forwards to the latest public `ma
 
 Complete Homebrew, cask, and login-shell password or approval prompts. Open a new Terminal and run `${HOME}/.macsetup/doctor`.
 
+After signing in to 1Password, create the encrypted, case-sensitive `Dev` volume for code at `/Volumes/Dev` (with `personal` and `work` folders). Paste the volume password from 1Password when prompted, and let macOS remember it in the keychain when it first asks at login:
+
+```bash
+"$HOME/.macsetup/dev-volume"
+```
+
 ## Commands
 
 `Brewfile` is the authoritative CLI and cask inventory. `.zsh_helpers.zsh` contains the shell helper implementations.
@@ -30,6 +36,7 @@ Complete Homebrew, cask, and login-shell password or approval prompts. Open a ne
 | `${HOME}/.macsetup/setup` | Apply packages and configuration |
 | `${HOME}/.macsetup/post-install` | Install and default the latest Node LTS |
 | `${HOME}/.macsetup/doctor` | Run read-only verification |
+| `${HOME}/.macsetup/dev-volume` | Create the encrypted `/Volumes/Dev` code volume |
 | `brew bundle check --file "$HOME/.macsetup/Brewfile" --verbose` | Verify the package contract |
 | `fnm list` | List installed Node versions |
 | `fnm use <version>` | Activate an installed Node version |
@@ -58,7 +65,7 @@ exec /opt/homebrew/bin/zsh -l
 
 ## Updating configuration
 
-The seven managed home paths are symbolic links into the writable `${HOME}/.macsetup` checkout. For a checkout already on `main`:
+Five managed home paths are symbolic links into the writable `${HOME}/.macsetup` checkout. `~/.zprofile` and `~/.zshrc` are instead small machine-local loaders that source `dotfiles/.zprofile` and `dotfiles/.zshrc`, so installers can append to them without changing the repository. Edit the shared Zsh configuration under `${HOME}/.macsetup/dotfiles/`. For a checkout already on `main`:
 
 ```bash
 macsetup status --short

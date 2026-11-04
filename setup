@@ -31,10 +31,26 @@ validate_environment() {
   [[ -n "${HOME:-}" ]] || die 'HOME is not set'
 }
 
+backup_existing() {
+  local destination="$1"
+  local relative_destination backup_destination
+
+  if [[ -z "$BACKUP_ROOT" ]]; then
+    BACKUP_ROOT="${HOME}/.macsetup-backups/${BACKUP_TIMESTAMP}"
+    [[ ! -e "$BACKUP_ROOT" ]] || die "backup root already exists: ${BACKUP_ROOT}"
+  fi
+
+  relative_destination="${destination#"${HOME}/"}"
+  [[ "$relative_destination" != "$destination" ]] || die "refusing to back up path outside HOME: ${destination}"
+  backup_destination="${BACKUP_ROOT}/${relative_destination}"
+  /bin/mkdir -p "$(/usr/bin/dirname "$backup_destination")"
+  /bin/mv "$destination" "$backup_destination"
+  printf 'backup: %s -> %s\n' "$destination" "$backup_destination"
+}
+
 backup_and_link() {
   local source="$1"
   local destination="$2"
-  local relative_destination backup_destination
 
   [[ -e "$source" ]] || die "managed source is missing: ${source}"
 
@@ -46,21 +62,38 @@ backup_and_link() {
   /bin/mkdir -p "$(/usr/bin/dirname "$destination")"
 
   if [[ -e "$destination" || -L "$destination" ]]; then
-    if [[ -z "$BACKUP_ROOT" ]]; then
-      BACKUP_ROOT="${HOME}/.macsetup-backups/${BACKUP_TIMESTAMP}"
-      [[ ! -e "$BACKUP_ROOT" ]] || die "backup root already exists: ${BACKUP_ROOT}"
-    fi
-
-    relative_destination="${destination#"${HOME}/"}"
-    [[ "$relative_destination" != "$destination" ]] || die "refusing to back up path outside HOME: ${destination}"
-    backup_destination="${BACKUP_ROOT}/${relative_destination}"
-    /bin/mkdir -p "$(/usr/bin/dirname "$backup_destination")"
-    /bin/mv "$destination" "$backup_destination"
-    printf 'backup: %s -> %s\n' "$destination" "$backup_destination"
+    backup_existing "$destination"
   fi
 
   /bin/ln -s "$source" "$destination"
   printf 'link: %s -> %s\n' "$destination" "$source"
+}
+
+# Installers edit ~/.zprofile and ~/.zshrc in place, so those stay as
+# machine-local files that source the repository copy instead of symlinks.
+write_loader() {
+  local source="$1"
+  local destination="$2"
+  local loader="source \"${source}\""
+
+  [[ -e "$source" ]] || die "managed source is missing: ${source}"
+
+  if [[ -f "$destination" && ! -L "$destination" ]] && /usr/bin/grep -Fqx "$loader" "$destination"; then
+    printf 'skip: %s loads %s\n' "$destination" "$source"
+    return
+  fi
+
+  if [[ -L "$destination" && "$destination" -ef "$source" ]]; then
+    /bin/rm "$destination"
+  elif [[ -e "$destination" || -L "$destination" ]]; then
+    backup_existing "$destination"
+  fi
+
+  printf '%s\n' \
+    '# Managed by macsetup: loads the shared configuration from the repository.' \
+    '# Installers may append machine-specific lines below.' \
+    "$loader" >"$destination"
+  printf 'loader: %s -> %s\n' "$destination" "$source"
 }
 
 ensure_default_shell() {
@@ -119,8 +152,8 @@ eval "$("$HOMEBREW_BIN" shellenv)"
 "$HOMEBREW_BIN" bundle --file "$REPO_ROOT/Brewfile" --no-upgrade
 "$HOMEBREW_BIN" bundle check --file "$REPO_ROOT/Brewfile" --verbose
 
-backup_and_link "$REPO_ROOT/dotfiles/.zprofile" "${HOME}/.zprofile"
-backup_and_link "$REPO_ROOT/dotfiles/.zshrc" "${HOME}/.zshrc"
+write_loader "$REPO_ROOT/dotfiles/.zprofile" "${HOME}/.zprofile"
+write_loader "$REPO_ROOT/dotfiles/.zshrc" "${HOME}/.zshrc"
 backup_and_link "$REPO_ROOT/dotfiles/.zsh_helpers.zsh" "${HOME}/.zsh_helpers.zsh"
 backup_and_link "$REPO_ROOT/dotfiles/.zsh_plugins.txt" "${HOME}/.zsh_plugins.txt"
 backup_and_link "$REPO_ROOT/dotfiles/.config/starship.toml" "${HOME}/.config/starship.toml"
