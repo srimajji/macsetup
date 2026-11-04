@@ -86,7 +86,7 @@ check_dev_volume() {
 
   if ! info="$(/usr/sbin/diskutil info -plist /Volumes/Dev 2>/dev/null)" || \
     [[ "$(/usr/bin/plutil -extract MountPoint raw - <<<"$info" 2>/dev/null)" != "/Volumes/Dev" ]]; then
-    warn "/Volumes/Dev is not mounted; run ${REPO_ROOT}/dev-volume after setting up 1Password"
+    warn "/Volumes/Dev is not mounted; run macsetup dev-volume after setting up 1Password"
     return
   fi
 
@@ -178,6 +178,7 @@ fi
 check_loader "$REPO_ROOT/dotfiles/.zprofile" "${HOME}/.zprofile" "source \"$REPO_ROOT/dotfiles/.zprofile\""
 check_loader "$REPO_ROOT/dotfiles/.zshrc" "${HOME}/.zshrc" "source \"$REPO_ROOT/dotfiles/.zshrc\""
 check_loader "$REPO_ROOT/dotfiles/.gitconfig" "${HOME}/.gitconfig" "[include] path = \"$REPO_ROOT/dotfiles/.gitconfig\""
+check_managed_link "$REPO_ROOT/bin/macsetup" "${HOME}/.local/bin/macsetup"
 check_managed_link "$REPO_ROOT/dotfiles/.zsh_helpers.zsh" "${HOME}/.zsh_helpers.zsh"
 check_managed_link "$REPO_ROOT/dotfiles/.zsh_plugins.txt" "${HOME}/.zsh_plugins.txt"
 check_managed_link "$REPO_ROOT/dotfiles/.config/git/ignore" "${HOME}/.config/git/ignore"
@@ -238,7 +239,6 @@ fi
 # shellcheck disable=SC2016
 if "$HOMEBREW_ZSH" -fc 'source "$HOME/.zsh_helpers.zsh" || exit 1
   [[ "$(alias ls)" == *"eza -l --icons=auto"* ]] || exit 1
-  [[ "${aliases[macsetup]}" == *HOME*.macsetup* ]] || exit 1
   for helper in c ccd _resolve_fzf_colorscheme f v mkd o; do
     whence -w "$helper" >/dev/null || exit 1
   done'; then
@@ -247,6 +247,8 @@ else
   fail 'required shell aliases and functions load'
 fi
 
+check_command 'macsetup command reaches the checkout' \
+  "${HOME}/.local/bin/macsetup" rev-parse --git-dir
 check_command 'Neovim starts headlessly' /opt/homebrew/bin/nvim --headless '+qall'
 check_dev_volume
 check_checkout_warning

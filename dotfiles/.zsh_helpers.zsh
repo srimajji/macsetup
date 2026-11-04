@@ -27,7 +27,6 @@ alias .....='cd ../../../..'
 
 alias g=git
 alias vi=nvim
-alias macsetup='git -C "$HOME/.macsetup"'
 alias refresh='source "$HOME/.zshrc"'
 alias reload='exec /opt/homebrew/bin/zsh -l'
 alias path='print -l $path'

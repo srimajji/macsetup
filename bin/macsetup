@@ -1,0 +1,42 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# ~/.local/bin/macsetup is a symlink, so resolve it to find the checkout.
+SCRIPT_PATH="$(/usr/bin/readlink -f "${BASH_SOURCE[0]}")"
+REPO_ROOT="$(cd -P "$(/usr/bin/dirname "$SCRIPT_PATH")/.." >/dev/null 2>&1 && pwd)"
+readonly SCRIPT_PATH REPO_ROOT
+
+usage() {
+  printf '%s\n' \
+    'usage: macsetup <command> [args]' \
+    '' \
+    'Commands:' \
+    '  setup         Apply packages and configuration' \
+    '  post-install  Install and default the latest Node LTS and Python 3' \
+    '  doctor        Run read-only verification' \
+    '  dev-volume    Create the encrypted /Volumes/Dev code volume' \
+    '' \
+    'Any other command runs Git in the setup checkout, for example:' \
+    '  macsetup status --short' \
+    '  macsetup push origin main'
+}
+
+if (( $# == 0 )); then
+  usage >&2
+  exit 64
+fi
+
+case "$1" in
+  setup | post-install | doctor | dev-volume)
+    subcommand="$1"
+    shift
+    exec "${REPO_ROOT}/${subcommand}" "$@"
+    ;;
+  -h | --help)
+    usage
+    ;;
+  *)
+    exec /usr/bin/git -C "$REPO_ROOT" "$@"
+    ;;
+esac

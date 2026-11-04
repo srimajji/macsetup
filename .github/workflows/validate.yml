@@ -20,8 +20,8 @@ jobs:
 
       - name: Validate shell syntax and lint
         run: |
-          bash -n bootstrap setup post-install doctor dev-volume
-          shellcheck -s bash bootstrap setup post-install doctor dev-volume
+          bash -n bootstrap setup post-install doctor dev-volume bin/macsetup
+          shellcheck -s bash bootstrap setup post-install doctor dev-volume bin/macsetup
           /opt/homebrew/bin/zsh -n dotfiles/.zprofile dotfiles/.zshrc dotfiles/.zsh_helpers.zsh
 
       - name: Validate helper command surface
@@ -29,12 +29,20 @@ jobs:
           /opt/homebrew/bin/zsh -fc '
             source dotfiles/.zsh_helpers.zsh
             [[ "$(alias ls)" == *"eza -l --icons=auto"* ]]
-            [[ "${aliases[macsetup]}" == *HOME*.macsetup* ]]
             for helper in c ccd _resolve_fzf_colorscheme f v mkd o; do
               whence -w "$helper" >/dev/null
             done
             [[ "$(print -r -- "file with space" | f --filter="file with space")" == "file with space" ]]
           '
+
+      - name: Validate macsetup command
+        shell: bash
+        run: |
+          bin_home="$(mktemp -d)"
+          ln -s "$PWD/bin/macsetup" "$bin_home/macsetup"
+          "$bin_home/macsetup" --help >/dev/null
+          [[ "$("$bin_home/macsetup" rev-parse --show-toplevel)" == "$(pwd -P)" ]]
+          if "$bin_home/macsetup" >/dev/null 2>&1; then exit 1; fi
 
       - name: Validate exact Brewfile contract
         shell: bash
