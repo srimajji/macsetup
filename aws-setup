@@ -7,14 +7,21 @@ set -euo pipefail
 #   ~/.aws/config  gets one credential_process profile per role Google grants
 #   Granted   switches profiles (`assume`) and opens consoles in a chosen macOS app
 # Rerun it any time roles change; it regenerates the profiles for the account.
+# --remove deletes what it created again.
 # Nothing it asks for is stored in this repository.
 
 readonly SAML2AWS=/opt/homebrew/bin/saml2aws
+REPO_ROOT="$(cd -P "$(/usr/bin/dirname "$(/usr/bin/readlink -f "${BASH_SOURCE[0]}")")" >/dev/null 2>&1 && pwd)"
+# Every generated profile calls this helper: headless refresh, visible Chrome only when Google needs you.
+readonly REPO_ROOT CREDENTIAL_HELPER="${REPO_ROOT}/aws-credentials"
 readonly GO=/opt/homebrew/bin/go
 readonly FNM=/opt/homebrew/bin/fnm
 readonly SAML2AWS_CONFIG="${HOME}/.saml2aws"
 readonly AWS_CONFIG="${HOME}/.aws/config"
 readonly GRANTED_CONFIG="${HOME}/.granted/config"
+readonly SAML2AWS_STATE_DIR="${HOME}/.aws/saml2aws"
+readonly CREDENTIALS_CACHE="${SAML2AWS_STATE_DIR}/credentials"   # must match aws-credentials
+readonly PLAYWRIGHT_CACHE="${HOME}/Library/Caches/ms-playwright-go"
 readonly CHROME_CANDIDATES=(
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   "/Applications/Google Chrome Dev.app/Contents/MacOS/Google Chrome Dev"
@@ -29,6 +36,7 @@ usage() {
   printf '%s\n' \
     'usage: aws-setup [--account NAME] [--idp-url URL] [--username EMAIL]' \
     '                 [--region REGION] [--console-app APP] [--browser-path PATH]' \
+    '       aws-setup --remove [--all] [--account NAME] [--yes]' \
     '' \
     'Missing values are prompted for, defaulting to the existing saml2aws account.' \
     '  --account      saml2aws account name, also the profile name prefix source (e.g. work)' \
@@ -36,7 +44,12 @@ usage() {
     '  --username     Google Workspace email' \
     '  --region       default region for the generated profiles (default: eu-west-1)' \
     '  --console-app  macOS app that "assume -c" opens (default: Dia; "none" leaves Granted alone)' \
-    '  --browser-path Chrome binary saml2aws drives for the Google sign-in' >&2
+    '  --browser-path Chrome binary saml2aws drives for the Google sign-in' \
+    '' \
+    '  --remove       delete the account'"'"'s generated profiles and cached role credentials' \
+    '  --all          with --remove: also the saml2aws account; once no account is left, the' \
+    '                 saved Google session, the Playwright driver and the Granted console browser' \
+    '  --yes          do not ask for confirmation' >&2
   exit 64
 }
 
@@ -71,12 +84,134 @@ ask() {
   fi
 }
 
+managed_marker_begin() { printf '# BEGIN macsetup aws-setup: %s' "$1"; }
+managed_marker_end() { printf '# END macsetup aws-setup: %s' "$1"; }
+
+# Prints ~/.aws/config without the account's managed block and without any
+# profile that logs in through the account (hand-written or older generated ones).
+strip_account_profiles() {
+  local account="$1"
+  [[ -f "$AWS_CONFIG" ]] || return 0
+  /usr/bin/awk -v begin="$(managed_marker_begin "$account")" -v end="$(managed_marker_end "$account")" \
+    -v marker="saml2aws login -a ${account} " -v helper_marker="aws-credentials ${account} " '
+    function flush() { if (!drop) printf "%s", buf; buf = ""; drop = 0 }
+    $0 == begin { flush(); skipping = 1; next }
+    skipping { if ($0 == end) skipping = 0; next }
+    /^\[/ { flush() }
+    { buf = buf $0 "\n"; if (index($0, marker) || index($0, helper_marker)) drop = 1 }
+    END { flush() }
+  ' "$AWS_CONFIG" | /bin/cat -s
+}
+
+# Lists the profile names that strip_account_profiles would remove.
+account_profiles() {
+  local account="$1"
+  [[ -f "$AWS_CONFIG" ]] || return 0
+  /usr/bin/awk -v marker="saml2aws login -a ${account} " -v helper_marker="aws-credentials ${account} " '
+    /^\[profile / { name = $0; sub(/^\[profile[ \t]+/, "", name); sub(/\][ \t]*$/, "", name); next }
+    /^\[/ { name = ""; next }
+    name != "" && (index($0, marker) || index($0, helper_marker)) { print name; name = "" }
+  ' "$AWS_CONFIG"
+}
+
+# Prints an INI file without one [section].
+without_section() {
+  /usr/bin/awk -v section="[$2]" '
+    $0 == section { skipping = 1; next }
+    /^\[/ { skipping = 0 }
+    !skipping
+  ' "$1" | /bin/cat -s
+}
+
+# Replaces a file with stdin, deleting it instead when nothing but blank lines remain.
+replace_or_delete() {
+  local target="$1" tmp
+  tmp="$(/usr/bin/mktemp)"
+  /bin/cat > "$tmp"
+  if /usr/bin/grep -q '[^[:space:]]' "$tmp"; then
+    /bin/mv "$tmp" "$target"
+    /bin/chmod 600 "$target"
+  else
+    /bin/rm -f "$tmp" "$target"
+  fi
+}
+
+remove_account() {
+  local account="$1" all="$2" yes="$3" names name others reply
+
+  names="$(account_profiles "$account")"
+  others="$( [[ -f "$SAML2AWS_CONFIG" ]] && /usr/bin/awk -v me="[${account}]" '/^\[/ && $0 != me' "$SAML2AWS_CONFIG" || true)"
+
+  printf 'This removes for saml2aws account %s:\n' "$account"
+  printf '  %s profile(s) from %s\n' "$(printf '%s' "$names" | /usr/bin/grep -c . || true)" "$AWS_CONFIG"
+  printf '  their cached role credentials in %s\n' "$CREDENTIALS_CACHE"
+  if [[ "$all" == true ]]; then
+    printf '  the [%s] account in %s\n' "$account" "$SAML2AWS_CONFIG"
+    if [[ -z "$others" ]]; then
+      printf '  the saved Google session in %s\n' "$SAML2AWS_STATE_DIR"
+      printf '  the Playwright driver in %s\n' "$PLAYWRIGHT_CACHE"
+      printf '  the Granted console browser setting in %s\n' "$GRANTED_CONFIG"
+    else
+      printf '  (other saml2aws accounts remain, so the Google session, driver and Granted setting stay)\n'
+    fi
+  fi
+
+  if [[ "$yes" != true ]]; then
+    [[ -t 0 ]] || die 'pass --yes to remove without a terminal'
+    read -r -p 'Continue? [y/N] ' reply
+    [[ "$reply" == [yY] || "$reply" == [yY][eE][sS] ]] || { printf '%s\n' 'Nothing removed.'; exit 0; }
+  fi
+
+  if [[ -n "$names" ]]; then
+    strip_account_profiles "$account" | replace_or_delete "$AWS_CONFIG"
+    printf 'removed: %s profile(s) from %s\n' "$(printf '%s\n' "$names" | /usr/bin/grep -c .)" "$AWS_CONFIG"
+  else
+    printf 'skip: no profiles for %s in %s\n' "$account" "$AWS_CONFIG"
+  fi
+
+  if [[ -f "$CREDENTIALS_CACHE" ]]; then
+    while IFS= read -r name; do
+      [[ -n "$name" ]] || continue
+      without_section "$CREDENTIALS_CACHE" "saml-${name}" | replace_or_delete "$CREDENTIALS_CACHE"
+      [[ -f "$CREDENTIALS_CACHE" ]] || break
+    done <<< "$names"
+    printf 'removed: cached role credentials\n'
+  fi
+
+  [[ "$all" == true ]] || return 0
+
+  if [[ -f "$SAML2AWS_CONFIG" ]]; then
+    without_section "$SAML2AWS_CONFIG" "$account" | replace_or_delete "$SAML2AWS_CONFIG"
+    printf 'removed: [%s] from %s\n' "$account" "$SAML2AWS_CONFIG"
+  fi
+  [[ -z "$others" ]] || return 0
+
+  /bin/rm -f "${SAML2AWS_STATE_DIR}/storageState.json" "$CREDENTIALS_CACHE"
+  /bin/rmdir "$SAML2AWS_STATE_DIR" 2>/dev/null || true
+  printf 'removed: saved Google session\n'
+  /bin/rm -rf "$PLAYWRIGHT_CACHE"
+  printf 'removed: Playwright driver\n'
+  if [[ -f "$GRANTED_CONFIG" ]]; then
+    /usr/bin/awk '
+      /^DefaultBrowser[ \t]*=[ \t]*"CUSTOM"/ { next }
+      /^\[AWSConsoleBrowserLaunchTemplate\]/ { skipping = 1; next }
+      /^\[/ { skipping = 0 }
+      !skipping
+    ' "$GRANTED_CONFIG" | /bin/cat -s | replace_or_delete "$GRANTED_CONFIG"
+    printf 'removed: Granted console browser setting (assume -c will ask for a browser)\n'
+  fi
+  printf '%s\n' 'Not touched: Homebrew packages, and any saml2aws entry in the macOS keychain (Keychain Access, search accounts.google.com).'
+}
+
 account=""
 idp_url=""
 username=""
 region=""
 console_app=""
 browser_path=""
+remove=false
+remove_all=false
+assume_yes=false
 
 while (( $# > 0 )); do
   case "$1" in
@@ -86,12 +221,30 @@ while (( $# > 0 )); do
     --region) region="${2:-}"; shift 2 || usage ;;
     --console-app) console_app="${2:-}"; shift 2 || usage ;;
     --browser-path) browser_path="${2:-}"; shift 2 || usage ;;
+    --remove) remove=true; shift ;;
+    --all) remove_all=true; shift ;;
+    --yes) assume_yes=true; shift ;;
     -h | --help) usage ;;
     *) usage ;;
   esac
 done
 
-for tool in "$SAML2AWS" "$GO" "$FNM" /opt/homebrew/bin/granted /opt/homebrew/bin/aws; do
+if [[ "$remove" == true ]]; then
+  [[ -z "${idp_url}${username}${region}${console_app}${browser_path}" ]] || usage
+  if [[ -z "$account" ]]; then
+    account="$(/usr/bin/awk '/^\[/ { gsub(/[][]/, ""); print; exit }' "$SAML2AWS_CONFIG" 2>/dev/null || true)"
+  fi
+  if [[ -z "$account" && -f "$AWS_CONFIG" ]]; then
+    account="$(/usr/bin/sed -n 's/^# BEGIN macsetup aws-setup: //p' "$AWS_CONFIG" | /usr/bin/head -1)"
+  fi
+  [[ -n "$account" ]] || die 'no saml2aws account found; pass --account'
+  [[ "$account" =~ ^[A-Za-z0-9_-]+$ ]] || die "account name must be letters, digits, - or _: ${account}"
+  remove_account "$account" "$remove_all" "$assume_yes"
+  exit 0
+fi
+[[ "$remove_all" == false && "$assume_yes" == false ]] || usage
+
+for tool in "$SAML2AWS" "$CREDENTIAL_HELPER" "$GO" "$FNM" /opt/homebrew/bin/granted /opt/homebrew/bin/aws; do
   [[ -x "$tool" ]] || die "${tool} is missing; run macsetup setup first"
 done
 "$FNM" exec --using=default node --version >/dev/null 2>&1 || \
@@ -183,7 +336,7 @@ if ! configure_output="$("$SAML2AWS" configure \
   die 'saml2aws configure failed'
 fi
 # saml2aws keeps the Google session here between logins; it fails quietly without it.
-/bin/mkdir -p "${HOME}/.aws/saml2aws"
+/bin/mkdir -p "$SAML2AWS_STATE_DIR"
 printf 'configured: saml2aws account %s\n' "$account"
 
 # --- AWS profiles ------------------------------------------------------------------
@@ -193,16 +346,16 @@ list_args=(list-roles -a "$account" --skip-prompt)
 if [[ "$download_driver" == true ]]; then list_args+=(--download-browser-driver); fi
 roles="$("$SAML2AWS" "${list_args[@]}" 2>/dev/null)" || die 'saml2aws list-roles failed; rerun with: saml2aws list-roles -a '"$account"' --verbose'
 
-block_begin="# BEGIN macsetup aws-setup: ${account}"
-block_end="# END macsetup aws-setup: ${account}"
+block_begin="$(managed_marker_begin "$account")"
+block_end="$(managed_marker_end "$account")"
 
-profiles="$(printf '%s\n' "$roles" | /usr/bin/awk -v account="$account" -v region="$region" -v saml2aws="$SAML2AWS" '
+profiles="$(printf '%s\n' "$roles" | /usr/bin/awk -v account="$account" -v region="$region" -v helper="$CREDENTIAL_HELPER" '
   /^Account:/ { name = $2; next }
   /^arn:aws:iam::[0-9]+:role\// {
     split($0, arn, ":"); id = arn[5]
     role = $0; sub(/^.*:role\//, "", role); gsub(/\//, "-", role)
     profile = (name == id ? id : name "-" id) "-" role
-    printf "[profile %s]\nregion = %s\ncredential_process = %s login -a %s --credential-process --skip-prompt --quiet --role %s --profile saml-%s\n\n", profile, region, saml2aws, account, $0, profile
+    printf "[profile %s]\nregion = %s\ncredential_process = %s %s %s %s\n\n", profile, region, helper, account, $0, profile
     count++
   }
   END { if (count == 0) exit 1 }
@@ -212,16 +365,7 @@ profiles="$(printf '%s\n' "$roles" | /usr/bin/awk -v account="$account" -v regio
 [[ -f "$AWS_CONFIG" ]] || : > "$AWS_CONFIG"
 new_config="$(/usr/bin/mktemp)"
 {
-  # Keep everything except this account's previous block and any profile that
-  # already logs in through this account (hand-written or older generated ones).
-  /usr/bin/awk -v begin="$block_begin" -v end="$block_end" -v marker="saml2aws login -a ${account} " '
-    function flush() { if (!drop) printf "%s", buf; buf = ""; drop = 0 }
-    $0 == begin { flush(); skipping = 1; next }
-    skipping { if ($0 == end) skipping = 0; next }
-    /^\[/ { flush() }
-    { buf = buf $0 "\n"; if (index($0, marker)) drop = 1 }
-    END { flush() }
-  ' "$AWS_CONFIG" | /bin/cat -s
+  strip_account_profiles "$account"
   printf '%s\n' "$block_begin" "# Regenerated by: macsetup aws-setup --account ${account}" ""
   printf '%s\n' "$profiles"
   printf '%s\n' "$block_end"

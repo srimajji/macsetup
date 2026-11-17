@@ -62,6 +62,7 @@ Fix the cause and rerun; every step skips work that is already done. Before the 
 | `macsetup doctor` | Run read-only verification |
 | `macsetup dev-volume` | Create the encrypted `/Volumes/Dev` code volume |
 | `macsetup aws-setup` | Configure Google SAML AWS access with saml2aws and Granted; rerun to resync roles |
+| `macsetup aws-setup --remove [--all]` | Delete the generated AWS profiles and cached credentials; `--all` also removes the saml2aws account, Google session and driver |
 | `assume` / `assume -c` | Switch AWS profile in this terminal / open its console |
 | `macsetup <git command>` | Run Git in the setup checkout, such as `macsetup status` or `macsetup push origin main` |
 | `brew bundle check --file "$HOME/.macsetup/Brewfile" --verbose` | Verify the package contract |

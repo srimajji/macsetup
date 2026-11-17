@@ -20,8 +20,8 @@ jobs:
 
       - name: Validate shell syntax and lint
         run: |
-          bash -n bootstrap setup post-install doctor dev-volume aws-setup bin/macsetup
-          shellcheck -s bash bootstrap setup post-install doctor dev-volume aws-setup bin/macsetup
+          bash -n bootstrap setup post-install doctor dev-volume aws-setup aws-credentials bin/macsetup
+          shellcheck -s bash bootstrap setup post-install doctor dev-volume aws-setup aws-credentials bin/macsetup
           /opt/homebrew/bin/zsh -n dotfiles/.zprofile dotfiles/.zshrc dotfiles/.zsh_helpers.zsh
 
       - name: Validate helper command surface
