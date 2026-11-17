@@ -1,0 +1,268 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# Configures AWS access through a Google Workspace SAML app:
+#   saml2aws  signs in with Google (Browser provider driving Chrome) and mints role credentials
+#   ~/.aws/config  gets one credential_process profile per role Google grants
+#   Granted   switches profiles (`assume`) and opens consoles in a chosen macOS app
+# Rerun it any time roles change; it regenerates the profiles for the account.
+# Nothing it asks for is stored in this repository.
+
+readonly SAML2AWS=/opt/homebrew/bin/saml2aws
+readonly GO=/opt/homebrew/bin/go
+readonly FNM=/opt/homebrew/bin/fnm
+readonly SAML2AWS_CONFIG="${HOME}/.saml2aws"
+readonly AWS_CONFIG="${HOME}/.aws/config"
+readonly GRANTED_CONFIG="${HOME}/.granted/config"
+readonly CHROME_CANDIDATES=(
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  "/Applications/Google Chrome Dev.app/Contents/MacOS/Google Chrome Dev"
+)
+
+die() {
+  printf 'macsetup aws-setup: %s\n' "$*" >&2
+  exit 1
+}
+
+usage() {
+  printf '%s\n' \
+    'usage: aws-setup [--account NAME] [--idp-url URL] [--username EMAIL]' \
+    '                 [--region REGION] [--console-app APP] [--browser-path PATH]' \
+    '' \
+    'Missing values are prompted for, defaulting to the existing saml2aws account.' \
+    '  --account      saml2aws account name, also the profile name prefix source (e.g. work)' \
+    '  --idp-url      Google SAML URL: https://accounts.google.com/o/saml2/initsso?idpid=...&spid=...' \
+    '  --username     Google Workspace email' \
+    '  --region       default region for the generated profiles (default: eu-west-1)' \
+    '  --console-app  macOS app that "assume -c" opens (default: Dia; "none" leaves Granted alone)' \
+    '  --browser-path Chrome binary saml2aws drives for the Google sign-in' >&2
+  exit 64
+}
+
+# Reads one key of an account section from ~/.saml2aws.
+saml2aws_value() {
+  local account="$1" key="$2"
+  [[ -f "$SAML2AWS_CONFIG" ]] || return 0
+  /usr/bin/awk -v section="[${account}]" -v key="$key" '
+    $0 == section { inside = 1; next }
+    /^\[/ { inside = 0 }
+    inside {
+      split($0, kv, "=")
+      k = kv[1]; gsub(/[ \t]/, "", k)
+      if (k == key) { sub(/^[^=]*=[ \t]*/, ""); print; exit }
+    }
+  ' "$SAML2AWS_CONFIG"
+}
+
+ask() {
+  local label="$1" default="$2" reply
+  if [[ ! -t 0 ]]; then
+    [[ -n "$default" ]] || die "missing ${label}; pass it as a flag when not running interactively"
+    printf '%s' "$default"
+    return
+  fi
+  if [[ -n "$default" ]]; then
+    read -r -p "${label} [${default}]: " reply
+    printf '%s' "${reply:-$default}"
+  else
+    read -r -p "${label}: " reply
+    printf '%s' "$reply"
+  fi
+}
+
+account=""
+idp_url=""
+username=""
+region=""
+console_app=""
+browser_path=""
+
+while (( $# > 0 )); do
+  case "$1" in
+    --account) account="${2:-}"; shift 2 || usage ;;
+    --idp-url) idp_url="${2:-}"; shift 2 || usage ;;
+    --username) username="${2:-}"; shift 2 || usage ;;
+    --region) region="${2:-}"; shift 2 || usage ;;
+    --console-app) console_app="${2:-}"; shift 2 || usage ;;
+    --browser-path) browser_path="${2:-}"; shift 2 || usage ;;
+    -h | --help) usage ;;
+    *) usage ;;
+  esac
+done
+
+for tool in "$SAML2AWS" "$GO" "$FNM" /opt/homebrew/bin/granted /opt/homebrew/bin/aws; do
+  [[ -x "$tool" ]] || die "${tool} is missing; run macsetup setup first"
+done
+"$FNM" exec --using=default node --version >/dev/null 2>&1 || \
+  die 'no default Node; run macsetup post-install first'
+
+# --- Collect settings --------------------------------------------------------
+
+if [[ -z "$account" ]]; then
+  existing="$(/usr/bin/awk '/^\[/ { gsub(/[][]/, ""); print; exit }' "$SAML2AWS_CONFIG" 2>/dev/null || true)"
+  account="$(ask 'saml2aws account name' "${existing}")"
+fi
+[[ "$account" =~ ^[A-Za-z0-9_-]+$ ]] || die "account name must be letters, digits, - or _: ${account}"
+
+[[ -n "$idp_url" ]] || idp_url="$(ask 'Google SAML IdP URL' "$(saml2aws_value "$account" url)")"
+[[ "$idp_url" == https://accounts.google.com/o/saml2/initsso\?* ]] || \
+  die 'IdP URL must look like https://accounts.google.com/o/saml2/initsso?idpid=...&spid=...'
+
+[[ -n "$username" ]] || username="$(ask 'Google Workspace email' "$(saml2aws_value "$account" username)")"
+[[ "$username" == *@* ]] || die "not an email address: ${username}"
+
+[[ -n "$region" ]] || region="$(ask 'Default AWS region' 'eu-west-1')"
+[[ -n "$console_app" ]] || console_app="Dia"
+
+if [[ -z "$browser_path" ]]; then
+  browser_path="$(saml2aws_value "$account" browser_executable_path)"
+  if [[ -z "$browser_path" || ! -x "$browser_path" ]]; then
+    browser_path=""
+    for candidate in "${CHROME_CANDIDATES[@]}"; do
+      if [[ -x "$candidate" ]]; then browser_path="$candidate"; break; fi
+    done
+  fi
+fi
+[[ -x "$browser_path" ]] || die 'no Chrome found for the Google sign-in; pass --browser-path'
+
+# --- Playwright driver ---------------------------------------------------------
+# saml2aws's Browser provider needs the Playwright driver that matches its
+# playwright-go dependency. playwright-go releases before v0.6100.0 download it
+# from a CDN Microsoft retired in July 2026 (Versent/saml2aws#1531), so for
+# those the driver is assembled from the playwright-core npm package instead.
+
+download_driver=false
+read -r pw_module pw_version < <(
+  "$GO" version -m "$SAML2AWS" | /usr/bin/awk '$1 == "dep" && $2 ~ /playwright-go$/ { print $2, $3; exit }'
+) || true
+[[ -n "${pw_version:-}" ]] || die 'cannot read the playwright-go version from saml2aws'
+
+pw_digits="${pw_version#v0.}"
+pw_digits="${pw_digits%%.*}"
+if [[ "$pw_module" != github.com/playwright-community/playwright-go ]] || (( 10#$pw_digits >= 6100 )); then
+  download_driver=true
+  printf 'skip: %s %s installs its own driver\n' "$pw_module" "$pw_version"
+else
+  driver_version="1.$((10#${pw_digits:0:${#pw_digits}-2})).$((10#${pw_digits: -2}))"
+  driver_dir="${HOME}/Library/Caches/ms-playwright-go/${driver_version}"
+  if [[ -x "${driver_dir}/node" ]] && \
+     [[ "$("${driver_dir}/node" "${driver_dir}/package/cli.js" --version 2>/dev/null)" == "Version ${driver_version}" ]]; then
+    printf 'skip: Playwright driver %s is installed\n' "$driver_version"
+  else
+    printf 'Assembling Playwright driver %s from npm...\n' "$driver_version"
+    work="$(/usr/bin/mktemp -d)"
+    trap '/bin/rm -rf "$work"' EXIT
+    "$FNM" exec --using=default npm pack "playwright-core@${driver_version}" \
+      --pack-destination "$work" --silent >/dev/null
+    /usr/bin/tar -xzf "${work}/playwright-core-${driver_version}.tgz" -C "$work"
+    /bin/cp "$("$FNM" exec --using=default node -p 'process.execPath')" "${work}/node"
+    /bin/chmod +x "${work}/node"
+    [[ "$("${work}/node" "${work}/package/cli.js" --version)" == "Version ${driver_version}" ]] || \
+      die "assembled driver does not report Version ${driver_version}"
+    /bin/mkdir -p "$(/usr/bin/dirname "$driver_dir")"
+    /bin/rm -rf "$driver_dir"
+    /bin/mkdir -p "$driver_dir"
+    /bin/mv "${work}/node" "${work}/package" "$driver_dir/"
+    printf 'installed: Playwright driver %s\n' "$driver_version"
+  fi
+fi
+
+# --- saml2aws account ------------------------------------------------------------
+
+if ! configure_output="$("$SAML2AWS" configure \
+  --idp-account "$account" \
+  --idp-provider Browser \
+  --url "$idp_url" \
+  --username "$username" \
+  --browser-executable-path "$browser_path" \
+  --session-duration 3600 \
+  --profile saml \
+  --skip-prompt 2>&1)"; then
+  printf '%s\n' "$configure_output" >&2
+  die 'saml2aws configure failed'
+fi
+# saml2aws keeps the Google session here between logins; it fails quietly without it.
+/bin/mkdir -p "${HOME}/.aws/saml2aws"
+printf 'configured: saml2aws account %s\n' "$account"
+
+# --- AWS profiles ------------------------------------------------------------------
+
+printf '%s\n' 'Listing roles; sign in with Google if Chrome asks...'
+list_args=(list-roles -a "$account" --skip-prompt)
+if [[ "$download_driver" == true ]]; then list_args+=(--download-browser-driver); fi
+roles="$("$SAML2AWS" "${list_args[@]}" 2>/dev/null)" || die 'saml2aws list-roles failed; rerun with: saml2aws list-roles -a '"$account"' --verbose'
+
+block_begin="# BEGIN macsetup aws-setup: ${account}"
+block_end="# END macsetup aws-setup: ${account}"
+
+profiles="$(printf '%s\n' "$roles" | /usr/bin/awk -v account="$account" -v region="$region" -v saml2aws="$SAML2AWS" '
+  /^Account:/ { name = $2; next }
+  /^arn:aws:iam::[0-9]+:role\// {
+    split($0, arn, ":"); id = arn[5]
+    role = $0; sub(/^.*:role\//, "", role); gsub(/\//, "-", role)
+    profile = (name == id ? id : name "-" id) "-" role
+    printf "[profile %s]\nregion = %s\ncredential_process = %s login -a %s --credential-process --skip-prompt --quiet --role %s --profile saml-%s\n\n", profile, region, saml2aws, account, $0, profile
+    count++
+  }
+  END { if (count == 0) exit 1 }
+')" || die 'Google granted no AWS roles to this account'
+
+/bin/mkdir -p "${HOME}/.aws"
+[[ -f "$AWS_CONFIG" ]] || : > "$AWS_CONFIG"
+new_config="$(/usr/bin/mktemp)"
+{
+  # Keep everything except this account's previous block and any profile that
+  # already logs in through this account (hand-written or older generated ones).
+  /usr/bin/awk -v begin="$block_begin" -v end="$block_end" -v marker="saml2aws login -a ${account} " '
+    function flush() { if (!drop) printf "%s", buf; buf = ""; drop = 0 }
+    $0 == begin { flush(); skipping = 1; next }
+    skipping { if ($0 == end) skipping = 0; next }
+    /^\[/ { flush() }
+    { buf = buf $0 "\n"; if (index($0, marker)) drop = 1 }
+    END { flush() }
+  ' "$AWS_CONFIG" | /bin/cat -s
+  printf '%s\n' "$block_begin" "# Regenerated by: macsetup aws-setup --account ${account}" ""
+  printf '%s\n' "$profiles"
+  printf '%s\n' "$block_end"
+} > "$new_config"
+
+if /usr/bin/cmp -s "$new_config" "$AWS_CONFIG"; then
+  printf 'skip: %s is up to date\n' "$AWS_CONFIG"
+  /bin/rm -f "$new_config"
+else
+  /usr/bin/diff -u "$AWS_CONFIG" "$new_config" | /usr/bin/grep -E '^[+-]\[profile' || true
+  /bin/mv "$new_config" "$AWS_CONFIG"
+  /bin/chmod 600 "$AWS_CONFIG"
+  printf 'updated: %s\n' "$AWS_CONFIG"
+fi
+
+# --- Granted console browser ----------------------------------------------------------
+
+if [[ "$console_app" == none ]]; then
+  printf '%s\n' 'skip: Granted console browser (--console-app none)'
+elif ! /usr/bin/open -Ra "$console_app" 2>/dev/null; then
+  printf 'skip: Granted console browser (%s is not installed)\n' "$console_app"
+else
+  /bin/mkdir -p "$(/usr/bin/dirname "$GRANTED_CONFIG")"
+  [[ -f "$GRANTED_CONFIG" ]] || : > "$GRANTED_CONFIG"
+  new_granted="$(/usr/bin/mktemp)"
+  {
+    # Top-level TOML keys must precede tables, so DefaultBrowser goes first.
+    printf '%s\n' 'DefaultBrowser = "CUSTOM"'
+    /usr/bin/awk '
+      /^DefaultBrowser[ \t]*=/ { next }
+      /^\[AWSConsoleBrowserLaunchTemplate\]/ { skipping = 1; next }
+      /^\[/ { skipping = 0 }
+      !skipping
+    ' "$GRANTED_CONFIG" | /bin/cat -s
+    printf '\n%s\n' '[AWSConsoleBrowserLaunchTemplate]'
+    printf '%s\n' '  UseForkProcess = false'
+    printf '  Command = "open -a \\"%s\\" \\"{{.URL}}\\""\n' "$console_app"
+  } > "$new_granted"
+  /bin/mv "$new_granted" "$GRANTED_CONFIG"
+  /bin/chmod 600 "$GRANTED_CONFIG"
+  printf 'configured: assume -c opens the AWS console in %s\n' "$console_app"
+fi
+
+printf '\n%s\n' 'Done. Switch roles with: assume   Open a console with: assume -c'

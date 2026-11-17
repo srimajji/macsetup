@@ -41,6 +41,11 @@ Requires an Apple Silicon Mac on macOS 26 or later. Run these steps in order.
 7. Move Spotlight off ⌘ Space before giving it to Raycast: in System Settings → Keyboard → Keyboard Shortcuts → Spotlight, set "Show Spotlight search" to ⌥ Space. Then open Raycast and choose ⌘ Space as its hotkey during onboarding, or restore your Raycast settings.
 8. Install oMLX from the macOS 26 DMG on its [releases page](https://github.com/jundot/omlx/releases), open it once to choose a model folder, and let it add its CLI to `~/.zshrc`.
 9. Sign in to the remaining apps, and open Docker Desktop once to finish its setup.
+10. For AWS through a Google Workspace SAML app, run the command below. It asks for the SAML IdP URL (`https://accounts.google.com/o/saml2/initsso?idpid=...&spid=...`), your work email and an account name, signs in with Google in Chrome, and writes one profile per AWS role you can use. Rerun it when your roles change:
+
+    ```bash
+    macsetup aws-setup
+    ```
 
 ### If a step fails
 
@@ -56,6 +61,8 @@ Fix the cause and rerun; every step skips work that is already done. Before the 
 | `macsetup post-install` | Install and default the latest Node LTS and Python 3 |
 | `macsetup doctor` | Run read-only verification |
 | `macsetup dev-volume` | Create the encrypted `/Volumes/Dev` code volume |
+| `macsetup aws-setup` | Configure Google SAML AWS access with saml2aws and Granted; rerun to resync roles |
+| `assume` / `assume -c` | Switch AWS profile in this terminal / open its console |
 | `macsetup <git command>` | Run Git in the setup checkout, such as `macsetup status` or `macsetup push origin main` |
 | `brew bundle check --file "$HOME/.macsetup/Brewfile" --verbose` | Verify the package contract |
 | `fnm list` | List installed Node versions |

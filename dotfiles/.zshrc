@@ -60,6 +60,8 @@ bindkey '^[[A' history-substring-search-up
 bindkey '^[[B' history-substring-search-down
 HISTORY_SUBSTRING_SEARCH_ENSURE_UNIQUE=1
 
+alias assume=". assume"
+
 if (( $+commands[starship] )); then
   eval "$(starship init zsh)"
 else

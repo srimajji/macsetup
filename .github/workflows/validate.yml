@@ -20,8 +20,8 @@ jobs:
 
       - name: Validate shell syntax and lint
         run: |
-          bash -n bootstrap setup post-install doctor dev-volume bin/macsetup
-          shellcheck -s bash bootstrap setup post-install doctor dev-volume bin/macsetup
+          bash -n bootstrap setup post-install doctor dev-volume aws-setup bin/macsetup
+          shellcheck -s bash bootstrap setup post-install doctor dev-volume aws-setup bin/macsetup
           /opt/homebrew/bin/zsh -n dotfiles/.zprofile dotfiles/.zshrc dotfiles/.zsh_helpers.zsh
 
       - name: Validate helper command surface
@@ -49,10 +49,10 @@ jobs:
         run: |
           brew bundle list --file=Brewfile
           diff -u \
-            <(printf '%s\n' antidote awscli bat bun cloudflared container curl devcontainer direnv eza fnm fzf gh git go neovim opencode openssl php starship uv watchman zoxide zsh | sort) \
+            <(printf '%s\n' antidote awscli bat bun cloudflared container curl devcontainer direnv eza fnm fzf gh git go granted neovim opencode openssl php saml2aws starship uv watchman zoxide zsh | sort) \
             <(brew bundle list --formula --file=Brewfile | sort)
           diff -u \
-            <(printf '%s\n' 1password 1password-cli antigravity chatgpt claude claude-code@latest codex cursor cursor-cli discord docker-desktop figma flux-app font-hack-nerd-font font-jetbrains-mono font-jetbrains-mono-nerd-font font-paper-mono font-zed-mono-nerd-font google-chrome@dev granola kitty leapp openlogi raycast session-manager-plugin slack spotify tailscale-app thebrowsercompany-dia vscodium warp zed | sort) \
+            <(printf '%s\n' 1password 1password-cli antigravity chatgpt claude claude-code@latest codex cursor cursor-cli discord docker-desktop figma flux-app font-hack-nerd-font font-jetbrains-mono font-jetbrains-mono-nerd-font font-paper-mono font-zed-mono-nerd-font google-chrome@dev granola kitty openlogi raycast session-manager-plugin slack spotify tailscale-app thebrowsercompany-dia vscodium warp zed | sort) \
             <(brew bundle list --cask --file=Brewfile | sort)
 
       - name: Validate Node LTS and Python post-install

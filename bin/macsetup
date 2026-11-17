@@ -16,6 +16,7 @@ usage() {
     '  post-install  Install and default the latest Node LTS and Python 3' \
     '  doctor        Run read-only verification' \
     '  dev-volume    Create the encrypted /Volumes/Dev code volume' \
+    '  aws-setup     Configure Google SAML AWS access (saml2aws + Granted)' \
     '' \
     'Any other command runs Git in the setup checkout, for example:' \
     '  macsetup status --short' \
@@ -28,7 +29,7 @@ if (( $# == 0 )); then
 fi
 
 case "$1" in
-  setup | post-install | doctor | dev-volume)
+  setup | post-install | doctor | dev-volume | aws-setup)
     subcommand="$1"
     shift
     exec "${REPO_ROOT}/${subcommand}" "$@"
